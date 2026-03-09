@@ -1,0 +1,62 @@
+Package Information
+===================
+
+Game Name:      space_miners_hard
+Version:        1.3.2
+Created:        2026-02-27 19:24:01
+Platform:       GameAICup Competition Platform
+
+Contents:
+---------
+- Local game runner (local_runner.py)
+- Game engine core files
+- Game module: space_miners_hard
+- Game-specific example strategies (examples/)
+- Minimal starter strategies for all languages except C (test-strategies/)
+- Pre-configured run scripts
+
+Requirements:
+-------------
+See requirements.txt for Python dependencies
+
+Usage:
+------
+1. Extract this package
+2. Install requirements: pip install -r requirements.txt
+3. Run example game: ./run_example.sh (Linux/Mac) or run_example.bat (Windows)
+4. For more options: python3 local_runner.py --help
+
+Documentation:
+--------------
+See README.md for detailed instructions.
+
+Note: The problem statement is provided separately by the competition organizers.
+
+Included Files:
+---------------
+base_game_state.py
+examples/collector_strategy.py
+examples/energy_management_strategy.py
+examples/upgrade_strategy.py
+game_manager.py
+games/space_miners_hard/requirements.txt
+games/space_miners_hard/state.py
+local_runner.py
+PACKAGE_INFO.txt
+README.md
+replay_runner.py
+requirements.txt
+run_example.bat
+run_example.sh
+strategy_runner.py
+test-strategies/cpp/json.hpp
+test-strategies/cpp/main.cpp
+test-strategies/main.cs
+test-strategies/main.go
+test-strategies/main.java
+test-strategies/main.js
+test-strategies/main.kt
+test-strategies/main.rs
+test-strategies/main.scala
+test-strategies/main.swift
+utils.py
