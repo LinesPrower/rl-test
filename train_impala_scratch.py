@@ -44,9 +44,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--entropy-coeff", type=float, default=6e-5)
     parser.add_argument("--vf-loss-coeff", type=float, default=0.5)
     parser.add_argument("--grad-clip", type=float, default=40.0)
-    parser.add_argument("--score-reward-scale", type=float, default=1.0 / 20.0)
+    parser.add_argument("--score-reward-scale", type=float, default=0.0002)
     parser.add_argument("--terminal-win-reward", type=float, default=1.0)
-    parser.add_argument("--score-norm", type=float, default=200.0)
+    parser.add_argument("--score-norm", type=float, default=2000.0)
     parser.add_argument("--self-play-sync-interval", type=int, default=25)
     parser.add_argument("--opponent-mode", type=str, choices=["noop", "selfplay"], default="noop")
     parser.add_argument("--seed", type=int, default=42)
@@ -151,6 +151,15 @@ def build_config(args: argparse.Namespace) -> IMPALAConfig:
     return config
 
 
+def _as_float_or_none(value):
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def main() -> None:
     args = parse_args()
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -180,23 +189,47 @@ def main() -> None:
     try:
         for iteration in range(1, args.iterations + 1):
             result = algo.train()
-            ep_reward_mean = result.get("env_runners", {}).get("episode_reward_mean")
+            env_metrics = result.get("env_runners", {})
+            custom_metrics = env_metrics.get("custom_metrics", {})
+
+            ep_reward_mean = env_metrics.get("episode_reward_mean")
             if ep_reward_mean is None:
                 ep_reward_mean = result.get("episode_reward_mean")
+
             learner_stats = result.get("info", {}).get("learner", {}).get("main", {}).get("learner_stats", {})
-            entropy = learner_stats.get("entropy", None)
+            entropy = _as_float_or_none(learner_stats.get("entropy"))
+            winrate = _as_float_or_none(custom_metrics.get("main_win_mean"))
+            lossrate = _as_float_or_none(custom_metrics.get("main_loss_mean"))
+            tierate = _as_float_or_none(custom_metrics.get("main_tie_mean"))
+            score_diff = _as_float_or_none(custom_metrics.get("score_diff_mean"))
+
+            msg = [
+                f"iter={iteration:04d}",
+                f"timesteps_total={result.get('timesteps_total')}",
+                f"reward_mean={_as_float_or_none(ep_reward_mean)}",
+                f"entropy={entropy}",
+            ]
+            if winrate is not None:
+                msg.append(f"win={winrate:.3f}")
+            if lossrate is not None:
+                msg.append(f"loss={lossrate:.3f}")
+            if tierate is not None:
+                msg.append(f"tie={tierate:.3f}")
+            if score_diff is not None:
+                msg.append(f"score_diff={score_diff:.3f}")
             print(
-                f"iter={iteration:04d} reward_mean={ep_reward_mean} "
-                f"entropy={entropy} timesteps_total={result.get('timesteps_total')}"
+                " ".join(msg)
             )
 
             if iteration % args.checkpoint_every == 0:
                 latest_checkpoint = algo.save(str(args.checkpoint_dir))
-                print(f"checkpoint: {latest_checkpoint}")
+                ckpt_path = getattr(getattr(latest_checkpoint, "checkpoint", None), "path", None)
+                print(f"checkpoint: {ckpt_path or latest_checkpoint}")
     finally:
         final_checkpoint = algo.save(str(args.checkpoint_dir))
+        final_ckpt_path = getattr(getattr(final_checkpoint, "checkpoint", None), "path", None)
         elapsed = time.time() - start
-        print(f"final checkpoint: {final_checkpoint}")
+        print(f"final checkpoint: {final_ckpt_path or final_checkpoint}")
         print(f"elapsed_sec: {elapsed:.1f}")
         algo.stop()
         ray.shutdown()

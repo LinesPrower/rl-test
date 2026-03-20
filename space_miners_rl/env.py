@@ -22,9 +22,9 @@ class SpaceMinersRound1SelfPlayEnv(MultiAgentEnv):
 
         self.max_ticks = int(env_config.get("max_ticks", 1000))
         self.max_asteroids = int(env_config.get("max_asteroids", 20))
-        self.score_reward_scale = float(env_config.get("score_reward_scale", 1.0 / 20.0))
+        self.score_reward_scale = float(env_config.get("score_reward_scale", 0.0002))
         self.terminal_win_reward = float(env_config.get("terminal_win_reward", 1.0))
-        self.score_norm = float(env_config.get("score_norm", 200.0))
+        self.score_norm = float(env_config.get("score_norm", 2000.0))
         self.opponent_mode = str(env_config.get("opponent_mode", "noop")).lower()
         if self.opponent_mode not in {"noop", "selfplay"}:
             raise ValueError(f"Unsupported opponent_mode={self.opponent_mode!r}, expected 'noop' or 'selfplay'")
