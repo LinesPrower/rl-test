@@ -106,11 +106,11 @@ class SpaceMinersRound1SelfPlayEnv(MultiAgentEnv):
         if done:
             self.last_winner = int(self._state.get_winner_index())
             if self.last_winner == 0:
-                r0 += self.terminal_win_reward
-                r1 -= self.terminal_win_reward
+                r0 = self.terminal_win_reward
+                r1 = -self.terminal_win_reward
             elif self.last_winner == 1:
-                r0 -= self.terminal_win_reward
-                r1 += self.terminal_win_reward
+                r0 = -self.terminal_win_reward
+                r1 = self.terminal_win_reward
 
         rewards = {"player_0": float(r0), "player_1": float(r1)}
         terminateds = {"player_0": done, "player_1": done, "__all__": done}

@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import time
+from collections import deque
 from pathlib import Path
 
 import ray
@@ -160,6 +162,31 @@ def _as_float_or_none(value):
         return None
 
 
+def _checkpoint_path(save_result) -> str | None:
+    checkpoint_obj = getattr(save_result, "checkpoint", None)
+    path = getattr(checkpoint_obj, "path", None)
+    if path:
+        return str(path)
+    if isinstance(save_result, str):
+        return save_result
+    return None
+
+
+def _replace_checkpoint_snapshot(src_path: str, dst_path: Path) -> None:
+    src = Path(src_path)
+    dst = Path(dst_path)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():
+        if dst.is_dir():
+            shutil.rmtree(dst)
+        else:
+            dst.unlink()
+    if src.is_dir():
+        shutil.copytree(src, dst)
+    else:
+        shutil.copy2(src, dst)
+
+
 def main() -> None:
     args = parse_args()
     args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -185,6 +212,10 @@ def main() -> None:
         print("Warning: model is outside the target ~1M range. Adjust d_model/trunk_hidden if needed.")
 
     latest_checkpoint = None
+    best_checkpoint_dir = args.checkpoint_dir.parent / f"{args.checkpoint_dir.name}_best"
+    winrate_window: deque[float] = deque(maxlen=10)
+    best_winrate_10 = float("-inf")
+    best_iteration = 0
     start = time.time()
     try:
         for iteration in range(1, args.iterations + 1):
@@ -202,6 +233,11 @@ def main() -> None:
             lossrate = _as_float_or_none(custom_metrics.get("main_loss_mean"))
             tierate = _as_float_or_none(custom_metrics.get("main_tie_mean"))
             score_diff = _as_float_or_none(custom_metrics.get("score_diff_mean"))
+            winrate_10 = None
+            if winrate is not None:
+                winrate_window.append(winrate)
+            if len(winrate_window) == winrate_window.maxlen:
+                winrate_10 = sum(winrate_window) / len(winrate_window)
 
             msg = [
                 f"iter={iteration:04d}",
@@ -217,19 +253,39 @@ def main() -> None:
                 msg.append(f"tie={tierate:.3f}")
             if score_diff is not None:
                 msg.append(f"score_diff={score_diff:.3f}")
+            if winrate_10 is not None:
+                msg.append(f"win10={winrate_10:.3f}")
             print(
                 " ".join(msg)
             )
 
-            if iteration % args.checkpoint_every == 0:
+            regular_checkpoint = iteration % args.checkpoint_every == 0
+            best_checkpoint = winrate_10 is not None and winrate_10 > best_winrate_10
+            if regular_checkpoint or best_checkpoint:
                 latest_checkpoint = algo.save(str(args.checkpoint_dir))
-                ckpt_path = getattr(getattr(latest_checkpoint, "checkpoint", None), "path", None)
-                print(f"checkpoint: {ckpt_path or latest_checkpoint}")
+                ckpt_path = _checkpoint_path(latest_checkpoint)
+                if regular_checkpoint:
+                    print(f"checkpoint: {ckpt_path or latest_checkpoint}")
+                if best_checkpoint and ckpt_path:
+                    _replace_checkpoint_snapshot(ckpt_path, best_checkpoint_dir)
+                    best_winrate_10 = winrate_10
+                    best_iteration = iteration
+                    print(
+                        f"best checkpoint updated: iter={iteration:04d} "
+                        f"win10={best_winrate_10:.3f} path={best_checkpoint_dir}"
+                    )
     finally:
         final_checkpoint = algo.save(str(args.checkpoint_dir))
-        final_ckpt_path = getattr(getattr(final_checkpoint, "checkpoint", None), "path", None)
+        final_ckpt_path = _checkpoint_path(final_checkpoint)
         elapsed = time.time() - start
         print(f"final checkpoint: {final_ckpt_path or final_checkpoint}")
+        if best_iteration > 0:
+            print(
+                f"best checkpoint summary: iter={best_iteration:04d} "
+                f"win10={best_winrate_10:.3f} path={best_checkpoint_dir}"
+            )
+        else:
+            print("best checkpoint summary: no win10 metric available yet")
         print(f"elapsed_sec: {elapsed:.1f}")
         algo.stop()
         ray.shutdown()
