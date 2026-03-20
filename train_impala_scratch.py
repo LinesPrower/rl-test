@@ -25,6 +25,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--iterations", type=int, default=2000)
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("checkpoints/impala_round1"))
     parser.add_argument("--checkpoint-every", type=int, default=25)
+    parser.add_argument(
+        "--restore-from",
+        type=Path,
+        default=None,
+        help="Optional checkpoint path to resume from.",
+    )
     parser.add_argument("--ray-address", type=str, default=None, help="e.g. auto, ray://host:10001")
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--num-envs-per-worker", type=int, default=1)
@@ -156,6 +162,11 @@ def main() -> None:
 
     config = build_config(args)
     algo = config.build()
+
+    if args.restore_from is not None:
+        restore_path = str(args.restore_from)
+        algo.restore(restore_path)
+        print(f"Restored from checkpoint: {restore_path}")
 
     main_model = algo.get_policy("main").model
     params = count_trainable_parameters(main_model)
