@@ -52,7 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--entropy-coeff", type=float, default=6e-5)
     parser.add_argument("--vf-loss-coeff", type=float, default=0.5)
     parser.add_argument("--grad-clip", type=float, default=40.0)
-    parser.add_argument("--score-reward-scale", type=float, default=0.0002)
+    parser.add_argument("--score-reward-scale", type=float, default=0.005)
     parser.add_argument("--approach-base-reward-scale", type=float, default=0.1)
     parser.add_argument("--terminal-win-reward", type=float, default=1.0)
     parser.add_argument("--score-norm", type=float, default=2000.0)
