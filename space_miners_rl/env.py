@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import logging
 import random
 from typing import Any
@@ -9,7 +10,7 @@ from typing import Any
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 from space_miners_rl.action_space import decode_team_action, make_team_action_space
-from space_miners_rl.game_imports import SpaceMinersHardGameState
+from space_miners_rl.game_imports import GAME_HEIGHT, GAME_WIDTH, MAX_VELOCITY, SpaceMinersHardGameState
 from space_miners_rl.observation import encode_player_observation, make_observation_space
 
 
@@ -22,7 +23,8 @@ class SpaceMinersRound1SelfPlayEnv(MultiAgentEnv):
 
         self.max_ticks = int(env_config.get("max_ticks", 1000))
         self.max_asteroids = int(env_config.get("max_asteroids", 20))
-        self.score_reward_scale = float(env_config.get("score_reward_scale", 0.0002))
+        self.score_reward_scale = float(env_config.get("score_reward_scale", 0.005))
+        self.approach_base_reward_scale = float(env_config.get("approach_base_reward_scale", 0.1))
         self.terminal_win_reward = float(env_config.get("terminal_win_reward", 1.0))
         self.score_norm = float(env_config.get("score_norm", 2000.0))
         self.opponent_mode = str(env_config.get("opponent_mode", "noop")).lower()
@@ -42,6 +44,7 @@ class SpaceMinersRound1SelfPlayEnv(MultiAgentEnv):
 
         self._state: SpaceMinersHardGameState | None = None
         self._prev_scores = (0.0, 0.0)
+        self._initial_asteroid_count = 1
         self.last_winner = -1
 
         self.logger = logging.getLogger("space_miners_rl.env")
@@ -62,6 +65,28 @@ class SpaceMinersRound1SelfPlayEnv(MultiAgentEnv):
             score_norm=self.score_norm,
         )
 
+    def _mean_asteroid_speed_toward_base(self, player_id: int) -> float:
+        assert self._state is not None
+        base_x = 0.0 if player_id == 0 else GAME_WIDTH
+        base_y = GAME_HEIGHT / 2.0
+        toward_speed_sum = 0.0
+        for asteroid in self._state.asteroids:
+            asteroid_data = asteroid.to_dict()
+            x = float(asteroid_data["position"]["x"])
+            y = float(asteroid_data["position"]["y"])
+            vx = float(asteroid_data["velocity"]["x"])
+            vy = float(asteroid_data["velocity"]["y"])
+            rel_x = base_x - x
+            rel_y = base_y - y
+            rel_len = math.hypot(rel_x, rel_y)
+            if rel_len <= 1e-8:
+                continue
+            radial_speed = (vx * rel_x + vy * rel_y) / rel_len
+            if radial_speed > 0.0:
+                toward_speed_sum += radial_speed
+        denom = float(max(1, self._initial_asteroid_count)) * MAX_VELOCITY
+        return toward_speed_sum / denom
+
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         game_options = {
             "preset": "Round 1",
@@ -70,6 +95,7 @@ class SpaceMinersRound1SelfPlayEnv(MultiAgentEnv):
         }
         self._state = SpaceMinersHardGameState(game_options=game_options, logger=self.logger)
         self._prev_scores = (0.0, 0.0)
+        self._initial_asteroid_count = max(1, len(self._state.asteroids))
         self.last_winner = -1
 
         observations = {
@@ -95,12 +121,19 @@ class SpaceMinersRound1SelfPlayEnv(MultiAgentEnv):
 
         score0 = float(self._state.players[0].score)
         score1 = float(self._state.players[1].score)
-        delta0 = score0 - self._prev_scores[0]
-        delta1 = score1 - self._prev_scores[1]
-        self._prev_scores = (score0, score1)
 
-        r0 = self.score_reward_scale * (delta0 - delta1)
-        r1 = self.score_reward_scale * (delta1 - delta0)
+        approach_reward0 = self.approach_base_reward_scale * self._mean_asteroid_speed_toward_base(0)
+        approach_reward1 = self.approach_base_reward_scale * self._mean_asteroid_speed_toward_base(1)
+
+        rscore0 = score0 * self.score_reward_scale + approach_reward0
+        rscore1 = score1 * self.score_reward_scale + approach_reward1
+
+        delta0 = rscore0 - self._prev_scores[0]
+        delta1 = rscore1 - self._prev_scores[1]
+        self._prev_scores = (rscore0, rscore1)
+
+        r0 = delta0 - delta1
+        r1 = delta1 - delta0
 
         done = self._state.is_game_over()
         if done:
@@ -117,8 +150,16 @@ class SpaceMinersRound1SelfPlayEnv(MultiAgentEnv):
         truncateds = {"player_0": False, "player_1": False, "__all__": False}
 
         infos = {
-            "player_0": {"score": score0, "opponent_score": score1},
-            "player_1": {"score": score1, "opponent_score": score0},
+            "player_0": {
+                "score": score0,
+                "opponent_score": score1,
+                "approach_base_reward": float(approach_reward0),
+            },
+            "player_1": {
+                "score": score1,
+                "opponent_score": score0,
+                "approach_base_reward": float(approach_reward1),
+            },
         }
 
         observations = {

@@ -37,6 +37,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=8)
     parser.add_argument("--num-envs-per-worker", type=int, default=1)
     parser.add_argument("--num-gpus", type=float, default=0.0)
+    parser.add_argument(
+        "--restart-failed-env-runners",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Whether RLlib should auto-restart failed rollout workers.",
+    )
     parser.add_argument("--max-ticks", type=int, default=250)
     parser.add_argument("--max-asteroids", type=int, default=20)
     parser.add_argument("--train-batch-size", type=int, default=16000)
@@ -47,6 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vf-loss-coeff", type=float, default=0.5)
     parser.add_argument("--grad-clip", type=float, default=40.0)
     parser.add_argument("--score-reward-scale", type=float, default=0.0002)
+    parser.add_argument("--approach-base-reward-scale", type=float, default=0.1)
     parser.add_argument("--terminal-win-reward", type=float, default=1.0)
     parser.add_argument("--score-norm", type=float, default=2000.0)
     parser.add_argument("--self-play-sync-interval", type=int, default=25)
@@ -90,6 +97,7 @@ def build_config(args: argparse.Namespace) -> IMPALAConfig:
             "max_ticks": args.max_ticks,
             "max_asteroids": args.max_asteroids,
             "score_reward_scale": args.score_reward_scale,
+            "approach_base_reward_scale": args.approach_base_reward_scale,
             "terminal_win_reward": args.terminal_win_reward,
             "score_norm": args.score_norm,
             "opponent_mode": args.opponent_mode,
@@ -112,6 +120,7 @@ def build_config(args: argparse.Namespace) -> IMPALAConfig:
                 "max_ticks": args.max_ticks,
                 "max_asteroids": args.max_asteroids,
                 "score_reward_scale": args.score_reward_scale,
+                "approach_base_reward_scale": args.approach_base_reward_scale,
                 "terminal_win_reward": args.terminal_win_reward,
                 "score_norm": args.score_norm,
                 "opponent_mode": args.opponent_mode,
@@ -120,6 +129,11 @@ def build_config(args: argparse.Namespace) -> IMPALAConfig:
         )
     config = config.framework("torch").resources(num_gpus=args.num_gpus)
     config = _configure_sampling(config, args)
+    if hasattr(config, "fault_tolerance"):
+        config = config.fault_tolerance(
+            restart_failed_env_runners=args.restart_failed_env_runners,
+            max_num_env_runner_restarts=1000 if args.restart_failed_env_runners else 0,
+        )
     config = (
         config.training(
             lr=args.lr,
